@@ -1,0 +1,155 @@
+# The following code to create a dataframe and remove duplicated rows is always executed and acts as a preamble for your script: 
+
+# dataset = pandas.DataFrame(QUESTION, COMMENT)
+# dataset = dataset.drop_duplicates()
+
+# Paste or type your script code here:
+
+#Imports
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re
+
+scores = dataset
+
+def clean(string):
+    replacements = {
+        'need to be': 'ntb',
+        'needs to be': 'nstb'
+    }
+    for key, value in replacements.items():
+        string = string.replace(key, value)
+    return string
+
+def create_dictionary(phrase_size, useless):
+
+    def ngrams(array, n):
+        return list(zip(*[array[i:] for i in range(n)]))
+
+    df = scores
+    comments = df['COMMENT'].dropna()
+    counts = {}
+    for sentence in comments:
+        lowercase = sentence.lower()
+        cleaned = clean(re.sub("[^\w\d'\s]+",'', lowercase).strip())
+        if phrase_size == 1:
+            words = cleaned.split()
+            for word in words:
+                if word in counts.keys() and word not in useless:
+                    counts[word] += 1
+                elif word not in counts.keys() and word not in useless:
+                    counts[word] = 1
+        else:
+            pairs = list(ngrams(cleaned.split(), phrase_size))
+            for pair in pairs:
+                key = " ".join(pair)
+                if key in counts.keys():
+                    counts[key] += 1
+                elif key not in counts.keys():
+                    counts[key] = 1
+    sorted_words = dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+    return sorted_words
+
+def top_k_items(k, dictionary):
+    top_items = dict(list(dictionary.items())[0:k])
+    return top_items
+
+def build(phrase_size, k):
+
+    useless = set({'a','about','above','after','all',
+        'an','and','any','are',"aren't",'as','at','be','because',
+        'been','being','between','both','but','by','can',"couldn't",
+        'did',"didn't",'do','does',"doesn't",'doing',"don't",'down',
+        'during','each','few','for','from','had',"hadn't",'has',
+        "hasn't",'have',"haven't",'having','he','her','here',
+        'hers','herself','him','himself','his','how','i','if',
+        'in','into','is',"isn't",'it',"it's",'its','just',
+        'me',"mightn't",'more','my','myself',"needn't",
+        'no','nor','not','now','of','off','on','once',
+        'only','or','other','our','ours','ourselves','out',
+        'over','own','same','she',"she's",'should',"should've",
+        "shouldn't",'so','some','than','that','the','their',
+        'theirs','them','then','there','these','they','this',
+        'those','through','to','too','under','very','was',
+        "wasn't",'we','were',"weren't",'what','when','where',
+        'which','while','why','will','with',"won't","wouldn't"})
+
+    def combinations(iterable, r):
+        pool = tuple(iterable)
+        n = len(pool)
+        if r > n:
+            return
+        indices = list(range(r))
+        yield tuple(pool[i] for i in indices)
+        while True:
+            for i in reversed(range(r)):
+                if indices[i] != i + n - r:
+                    break
+            else:
+                return
+            indices[i] += 1
+            for j in range(i+1, r):
+                indices[j] = indices[j-1] + 1
+            yield tuple(pool[i] for i in indices)
+
+    def count_common(string1, string2):
+        str1, str2 = string1.split(), string2.split()
+        set1 = set(str1)
+        common = len(set1.intersection(str2))
+        # if ("nstb" in set1 or "ntb" in set1) and ("nstb" in str2 or "ntb" in str2):
+        #     common += 1
+        return common/len(str1)
+    
+    def top_k_dictionary(phrase_size, k):
+        words = create_dictionary(phrase_size, useless)
+        #sorted_dic = dict(sorted(words.items(), key=lambda item: item[1], reverse=True))
+        top_items = top_k_items(2*k+5, words)
+        return top_items
+    
+    def delete_similar_phrases(top_items):
+        tuples = list(top_items.items())
+        phrases = list(map(lambda x: x[0], tuples))
+        kept = dict.fromkeys(phrases, True)
+        combos = list(combinations(tuples, 2))
+        for combo in combos:
+            if kept[combo[0][0]] == False or kept[combo[1][0]] == False:
+                continue
+            similarity = count_common(combo[0][0], combo[1][0])
+            if similarity >= 0.66:
+                if combo[1][1] > combo[0][1]:
+                    kept[combo[0][0]] = False
+                else:
+                    kept[combo[1][0]] = False
+        return kept
+    
+    def reformat(reduced, original_dict):
+        final_phrases = []
+        for key, value in reduced.items():
+            if value == True:
+                final_phrases.append(key)
+        filtered_dict = {}
+        for phrase in final_phrases:
+            filtered_dict[phrase] = original_dict[phrase]
+        return dict(list(reversed(list(filtered_dict.items())[0:k])))
+    
+    top_items = top_k_dictionary(phrase_size, k)
+    kept_dictionary = delete_similar_phrases(top_items)
+    reduced_dictionary = reformat(kept_dictionary, top_items)
+    
+    return reduced_dictionary
+
+def plot_barchart(phrase_size, k):
+    data = build(phrase_size, k)
+    fig, ax = plt.subplots(figsize=(30, 20))
+    plt.subplots_adjust(left = .5, bottom = .08, right=1, top=.95)
+    ax.barh(range(len(data)), list(data.values()), align='center', color = '#DEC7AC')
+    plt.xticks(fontsize = 40)
+    plt.yticks(range(len(data)), list(data.keys()), fontsize = 47)
+    plt.xlabel('Count', fontsize = 45, fontweight = 'semibold')
+    ax.xaxis.set_label_coords(.93, -.05)
+    plt.ylabel('Phrase', fontsize = 50, fontweight = 'semibold', rotation = 'horizontal')
+    ax.yaxis.set_label_coords(-.45, .97)
+    plt.show()
+
+plot_barchart(scores['PHRASE SIZE'].iloc[0], scores['NUMBER OF PHRASES'].iloc[0])
