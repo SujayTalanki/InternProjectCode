@@ -1,0 +1,50 @@
+import pandas as pd
+from sklearn.cluster import KMeans
+import os
+os.environ['CURL_CA_BUNDLE'] = ''
+from sentence_transformers import SentenceTransformer, util
+
+#Code to create clusters of comments
+def create_clusters(data, question, num_clusters):
+
+    def comments_list(data, question):
+        #if we want whole dataset, enter '' for the data argument
+        if question != '':
+            df = data[data['REASON'] == question]
+        else:
+            df = data.copy()
+        comments = df['COMMENT'].dropna().unique()
+        sentences = []
+        for sentence in comments:
+            lowercase = sentence.lower()
+            cleaned = re.sub("[^\w\d'\s]+",'', lowercase).strip()
+            sentences.append(cleaned)
+        return sentences
+    
+    def create_embeddings(sentences):
+        model = SentenceTransformer('paraphrase-MiniLM-L6-v2')
+        sentence_embeddings = model.encode(sentences)
+        return sentence_embeddings
+    
+    def clusters(sentences, sentence_embeddings, num_clusters):
+        clustering_model = KMeans(n_clusters=num_clusters)
+        clustering_model.fit(sentence_embeddings)
+        cluster_assignment = clustering_model.labels_
+        for i in range(num_clusters):
+            print()
+            print(f'Cluster {i + 1} contains:')
+            clust_sent = np.where(cluster_assignment == i)
+            for k in clust_sent[0]:
+                print(f'- {sentences[k]}')
+
+    sentences = comments_list(data, question)
+    sentence_embeddings= create_embeddings(sentences)
+    final_clusters = clusters(sentences, sentence_embeddings, num_clusters)
+    
+    return final_clusters
+    
+    sentences = comments_list(data, question)
+    sentence_embeddings= create_embeddings(sentences)
+    final_clusters = clusters(sentences, sentence_embeddings, num_clusters)
+    
+    return final_clusters
