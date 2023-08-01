@@ -1,8 +1,156 @@
 import pandas as pd
+import numpy as np
 from sklearn.cluster import KMeans
 import os
 os.environ['CURL_CA_BUNDLE'] = ''
 from sentence_transformers import SentenceTransformer, util
+import itertools
+import re
+import nltk
+from nltk.corpus import stopwords
+from nltk import ngrams
+from dash import Dash, dcc, html, Input, Output
+import plotly.express as px
+import dash_bootstrap_components as dbc
+from dash_bootstrap_templates import load_figure_template
+
+# Code to create barchart
+def create_barchart(question, phrase_size, k):
+
+    def comments_phrases_dictionary(question, phrase_size):
+        df = current[current['REASON'] == question]
+        comments = df['COMMENT'].dropna()
+        counts = {}
+        for sentence in comments:
+            lowercase = sentence.lower()
+            cleaned = re.sub("[^\w\d'\s]+",'', lowercase).strip()
+            if phrase_size == 1:
+                words = cleaned.split()
+                useless_words = set(stopwords.words('english'))
+                for word in words:
+                    if word in counts.keys() and word not in useless_words:
+                        counts[word] += 1
+                    elif word not in counts.keys() and word not in useless_words:
+                        counts[word] = 1
+            else:
+                pairs = list(ngrams(cleaned.split(), phrase_size))
+                for pair in pairs:
+                    key = " ".join(pair)
+                    if key in counts.keys():
+                        counts[key] += 1
+                    elif key not in counts.keys():
+                        counts[key] = 1
+        sorted_words = dict(sorted(counts.items(), key=lambda item: item[1], reverse=True))
+        return sorted_words
+
+    def top_k_dictionary(question, phrase_size, k):
+        words = comments_phrases_dictionary(question, phrase_size)
+        top_items = top_k_items(2*k+5, words)
+        return top_items
+    
+    def create_embeddings(top_items):
+        sentences = list(top_items.keys())
+        counts = list(top_items.values())
+        model = SentenceTransformer('paraphrase-MiniLM-L6-v2') #distilbert-base-nli-mean-tokens
+        sentence_embeddings = model.encode(sentences)
+        sentences_with_embeddings = list(zip(sentences, sentence_embeddings, counts))
+        return sentences_with_embeddings, sentences
+    
+    def delete_similar_phrases(phrases_embeddings, sentences):
+        kept = dict.fromkeys(sentences, True)
+        combos = list(itertools.combinations(phrases_embeddings, 2))
+        for combo in combos:
+            if kept[combo[0][0]] == False or kept[combo[1][0]] == False:
+                continue
+            similarity = util.pytorch_cos_sim(combo[0][1], combo[1][1]).item()
+            if similarity >= 0.85:
+                if combo[1][2] > combo[0][2]:
+                    kept[combo[0][0]] = False
+                else:
+                    kept[combo[1][0]] = False
+        return kept
+       
+    def reformat(reduced, original_dict, k):
+        final_phrases = []
+        for key, value in reduced.items():
+            if value == True:
+                final_phrases.append(key)
+        filtered_dict = {}
+        for phrase in final_phrases:
+            filtered_dict[phrase] = original_dict[phrase]
+        return dict(list(filtered_dict.items())[0:k])
+    
+    top_items = top_k_dictionary(question, phrase_size, k)
+    sentences_with_embeddings, sentences = create_embeddings(top_items)
+    kept_dictionary = delete_similar_phrases(sentences_with_embeddings, sentences)
+    reduced_dictionary = reformat(kept_dictionary, top_items, k)
+    
+    return reduced_dictionary
+
+# App to visualize key phrases
+app = Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
+style = {'margin-left':'7px', 'margin-top':'7px'}
+sidebar_style = {
+    "position": "fixed",
+    "top": 0,
+    "left": 0,
+    "bottom": 0,
+    "width": "22rem",
+    "padding": "1rem 1rem",
+    "background-color": "black",
+}
+
+sidebar = html.Div([
+        html.H2("Options"),
+        html.Hr(),
+        html.P(
+            "Choose values for each option below", className="lead"
+        ),
+        dbc.Nav(
+            [
+                question_input := dcc.Dropdown(id='Select Question', options=current['REASON'].unique(), value='Other'),
+                html.Br(),
+                size_input := dcc.Input(type='number', value=3, min=1, max=10),
+                html.Br(),
+                k_input := dcc.Input(type='number', value=20, min=1, max=50)
+            ],
+            vertical=True,
+            pills=True,
+        ),
+    ],
+    style=sidebar_style,
+)
+
+app.layout = html.Div(children = [
+                dbc.Row([
+                    dbc.Col(),
+                    dbc.Col(html.H1('Common Phrases per Reason'), width = 9, style = {'margin-left':'7px','margin-top':'7px'})
+                    ]),
+                dbc.Row(
+                    [dbc.Col(sidebar),
+                     dbc.Col(gr := dcc.Graph(id = 'graph2', figure = {}), width = 9, style = {'margin-left':'15px', 'margin-top':'7px', 'margin-right':'15px'})
+                    ])
+    ]
+)
+
+@app.callback(
+    Output(gr, component_property='figure'),
+    Input(question_input, 'value'),
+    Input(size_input, 'value'),
+    Input(k_input, 'value')
+)
+def update_graph(question_value, size_value, k):
+    top_items = create_barchart(question_value, size_value, k)
+    data = pd.DataFrame(list(top_items.items()), columns=['phrase', 'count'])
+    fig = px.bar(data, x='phrase', y='count')
+    fig.show()
+    fig.update_layout(mapbox_style='carto-positron')
+    return fig
+
+load_figure_template('DARKLY')
+
+if __name__ == '__main__':
+    app.run_server(debug=False)
 
 #Code to create clusters of comments
 def create_clusters(data, question, num_clusters):
