@@ -152,7 +152,7 @@ load_figure_template('DARKLY')
 if __name__ == '__main__':
     app.run_server(debug=False)
 
-#Code to create clusters of comments
+# Code to create clusters of comments
 def create_clusters(data, question, num_clusters):
 
     def comments_list(data, question):
